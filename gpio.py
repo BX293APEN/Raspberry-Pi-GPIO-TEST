@@ -31,7 +31,7 @@ class SSD1306():
         image       = Image.new("1", (self.oledWidth, self.oledHeight))
         draw        = ImageDraw.Draw(image)
         font        = ImageFont.truetype(fontPath, fontSize) #フォント設定
-        draw.rectangle((0, 0, self.oledWidth - 1, self.oledWidth - 1), outline = lineMode, fill = int(lightMode)) # bg設定
+        draw.rectangle((0, 0, self.oledWidth - 1, self.oledHeight - 1), outline = lineMode, fill = int(lightMode)) # bg設定
         dispText    = ""
         if dispMode:
             for c in message:
@@ -105,7 +105,7 @@ class AE_RX8900():
             return f"RTCモジュールエラー\n{e}"
     
     def rtctime2str(self):
-        return f"{self.rtcYear}/{self.rtcMon}/{self.rtcDateData} {self.rtcHou}:{self.rtcMin}:{self.rtcSec} ({self.rtcWeekday})"
+        return f"{self.rtcYear}/{self.rtcMon:02}/{self.rtcDateData:02} {self.rtcHou:02}:{self.rtcMin:02}:{self.rtcSec:02} ({self.rtcWeekday})"
 
     def decode_time(self):
         self.i2c.writeto(self.i2cAddr, bytearray([0x00]))
@@ -189,11 +189,22 @@ if __name__ == "__main__":
 
         else:
             pinset.ssd1306.show("Alice\nin\nCradle", "font/AiC Font.ttf", fontSize = 16)
+            
         print(pinset.ae_rx8900.update())
         print(pinset.ae_rx8900.time())
         print(pinset.ae_rx8900.temp())
         pinset.led.value = 0
 
-        while True:
-            pinset.led.value = 1 - pinset.led.value
-            sleep(1)
+        try:
+            while True:
+                pinset.led.value = 1 - pinset.led.value
+                sleep(1)
+
+        except KeyboardInterrupt:
+            print("終了中...")
+        
+        except Exception as e:
+            print(e)
+
+        finally:
+            pinset.led.value = 0
