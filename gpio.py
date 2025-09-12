@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-# sudo pip install adafruit-circuitpython-ssd1306
-import board, busio, adafruit_ssd1306, datetime, gpiozero
+# sudo pip install adafruit-blinka adafruit-circuitpython-ssd1306
+import board, busio, adafruit_ssd1306, datetime, gpiozero, sys
 
 from PIL import (
     Image,
@@ -13,26 +13,26 @@ from time import sleep
 
 class SSD1306():
     def __init__(self, i2cDevice, i2cAddr = 0x3c):
-        self.display = adafruit_ssd1306.SSD1306_I2C(128, 64, i2cDevice, addr=i2cAddr)
+        self.display    = adafruit_ssd1306.SSD1306_I2C(128, 64, i2cDevice, addr=i2cAddr)
         self.display.fill(0)
         self.display.show()
-        self.oledWidth = self.display.width
+        self.oledWidth  = self.display.width
         self.oledHeight = self.display.height
     
     def show(
         self, 
         message, 
         fontPath, 
-        fontSize = 12, 
-        lightMode = False, 
-        dispMode = False, 
-        lineMode = False
+        fontSize    = 12, 
+        lightMode   = False, 
+        dispMode    = False, 
+        lineMode    = False
     ):
-        image = Image.new("1", (self.oledWidth, self.oledHeight))
-        draw = ImageDraw.Draw(image)
-        font = ImageFont.truetype(fontPath, fontSize) #フォント設定
+        image       = Image.new("1", (self.oledWidth, self.oledHeight))
+        draw        = ImageDraw.Draw(image)
+        font        = ImageFont.truetype(fontPath, fontSize) #フォント設定
         draw.rectangle((0, 0, self.oledWidth - 1, self.oledWidth - 1), outline = lineMode, fill = int(lightMode)) # bg設定
-        dispText = ""
+        dispText    = ""
         if dispMode:
             for c in message:
                 dispText += c
@@ -76,16 +76,22 @@ class AE_RX8900():
                 "rtc" : 0x01
             }
         ]
-        self.i2c = i2cDevice
-        self.i2cAddr = i2cAddr
-
+        self.i2c        = i2cDevice
+        self.i2cAddr    = i2cAddr
+    
+    def bcd2int(self, bcdByte):
+        return ((bcdByte >> 4) * 10) + (bcdByte & 0x0F)
+    
+    def int2bcd_byte(self, digit):
+        return (((digit // 10) & 0x0F) << 4) | ((digit % 10) & 0x0F)
+    
     def temp(self):
         try:
-            self.i2c.writeto(self.i2cAddr, chr(0x17))
-            result = bytearray(1)
+            self.i2c.writeto(self.i2cAddr, bytearray([0x17]))
+            result      = bytearray(1)
             self.i2c.readfrom_into(self.i2cAddr, result)
-            tempData = result[0]
-            self.temp = (tempData * 2 - 187.19)/ 3.218
+            tempData    = result[0]
+            self.temp   = (tempData * 2 - 187.19)/ 3.218
             return self.temp
         except:
             return 0
@@ -100,23 +106,22 @@ class AE_RX8900():
     
     def rtctime2str(self):
         return f"{self.rtcYear}/{self.rtcMon}/{self.rtcDateData} {self.rtcHou}:{self.rtcMin}:{self.rtcSec} ({self.rtcWeekday})"
-    
+
     def decode_time(self):
-        self.i2c.writeto(self.i2cAddr, chr(0x00))
+        self.i2c.writeto(self.i2cAddr, bytearray([0x00]))
         result = bytearray(8)
         self.i2c.readfrom_into(self.i2cAddr, result)
-        resultRTC = [hex(i) for i in list(result)]
         try:
-            self.rtcSec         = str(resultRTC[0]).split("0x")[1]
-            self.rtcMin         = str(resultRTC[1]).split("0x")[1]
-            self.rtcHou         = str(resultRTC[2]).split("0x")[1]
+            self.rtcSec         = self.bcd2int(result[0])
+            self.rtcMin         = self.bcd2int(result[1])
+            self.rtcHou         = self.bcd2int(result[2])
             self.rtcWeekday     =    [
                 v["code"] for v in self.weekdayCode
-                    if v["rtc"] == int(resultRTC[3], 16)
+                    if v["rtc"] == result[3]
             ][0]
-            self.rtcDateData    = str(resultRTC[4]).split("0x")[1]
-            self.rtcMon         = str(resultRTC[5]).split("0x")[1]
-            self.rtcYear        = f"20{str(resultRTC[6]).split('0x')[1]}"
+            self.rtcDateData    = self.bcd2int(result[4])
+            self.rtcMon         = self.bcd2int(result[5])
+            self.rtcYear        = f"20{self.bcd2int(result[6])}"
         except Exception as e:
             print(f"時刻取得エラー : {e}")
     
@@ -131,52 +136,27 @@ class AE_RX8900():
             self.nowHour = self.nowTime.hour
             self.nowMinute = self.nowTime.minute
             self.nowSecond = self.nowTime.second
-            #秒修正
-            d = 0b0
-            secondData = self.nowSecond
-            for c in str(secondData):
-                d = d << 4 | int(c)
-            self.i2c.writeto(self.i2cAddr, f"{chr(0x00)}{chr(d)}")
+            
+            d = self.int2bcd_byte(self.nowSecond)                   #秒修正
+            self.i2c.writeto(self.i2cAddr, bytearray([0x00, d]))
+
+            d = self.int2bcd_byte(self.nowMinute)                   #分修正
+            self.i2c.writeto(self.i2cAddr, bytearray([0x01, d]))
+            
+            d = self.int2bcd_byte(self.nowHour)                     #時修正
+            self.i2c.writeto(self.i2cAddr, bytearray([0x02, d]))
+
+            weekdayData = self.weekdayRTC                           #曜日修正
+            self.i2c.writeto(self.i2cAddr, bytearray([0x03, weekdayData]))
+
+            d = self.int2bcd_byte(self.nowDate)                     #日修正
+            self.i2c.writeto(self.i2cAddr, bytearray([0x04, d]))
+
+            d = self.int2bcd_byte(self.nowMonth)                    #月修正
+            self.i2c.writeto(self.i2cAddr, bytearray([0x05, d]))
         
-            #分修正
-            d = 0b0
-            minurteData = self.nowMinute
-            for c in str(minurteData):
-                d = d << 4 | int(c)
-            self.i2c.writeto(self.i2cAddr, f"{chr(0x01)}{chr(d)}")
-        
-            #時修正
-            d = 0b0
-            hourData = self.nowHour
-            for c in str(hourData):
-                d = d << 4 | int(c)
-            self.i2c.writeto(self.i2cAddr, f"{chr(0x02)}{chr(d)}")
-        
-            #曜日修正
-            weekdayData = self.weekdayRTC
-            self.i2c.writeto(self.i2cAddr, f"{chr(0x03)}{chr(weekdayData)}")
-        
-            #日修正
-            d = 0b0
-            dateData = self.nowDate
-            for c in str(dateData):
-                d = d << 4 | int(c)
-            self.i2c.writeto(self.i2cAddr, f"{chr(0x04)}{chr(d)}")
-        
-            #月修正
-            d = 0b0
-            monthData = self.nowMonth
-            for c in str(monthData):
-                d = d << 4 | int(c)
-            self.i2c.writeto(self.i2cAddr, f"{chr(0x05)}{chr(d)}")
-        
-            #年修正
-            d = 0b0
-            yearData = self.nowYear
-            for c in str(yearData % 100):
-                d = d << 4 | int(c)
-            #print(hex(d))
-            self.i2c.writeto(self.i2cAddr, f"{chr(0x06)}{chr(d)}")
+            d = self.int2bcd_byte(self.nowYear % 100)               #年修正
+            self.i2c.writeto(self.i2cAddr, bytearray([0x06, d]))
             
             self.decode_time()
             return f"Update : {self.rtctime2str()}"
@@ -190,21 +170,30 @@ class GPIOCtrl:
         self,
         ledPin = 18
     ):
-        self.i2c = busio.I2C(board.SCL, board.SDA)
-        self.led = gpiozero.DigitalOutputDevice(pin=ledPin)
-        self.ssd1306 = SSD1306(self.i2c)
-        self.ae_rx8900 = AE_RX8900(self.i2c)
+        self.i2c        = busio.I2C(board.SCL, board.SDA)
+        self.led        = gpiozero.DigitalOutputDevice(pin=ledPin)
+        self.ssd1306    = SSD1306(self.i2c)
+        self.ae_rx8900  = AE_RX8900(self.i2c)
+
+    def __enter__(self):
+        return self
+    def __exit__(self, *args):
+        self.i2c.unlock()
+
         
-        
-    
 if __name__ == "__main__":
-    pinset = GPIOCtrl()
-    # pinset.ssd1306.show("Alice\nin\nCradle", "font/AiC Font.ttf", fontSize = 16)
-    pinset.ssd1306.show("Hello\nWorld", "font/HGRGE.TTC", fontSize = 16)
-    print(pinset.ae_rx8900.update())
-    print(pinset.ae_rx8900.time())
-    print(pinset.ae_rx8900.temp())
-    pinset.led.value = 0
-    while True:
-        pinset.led.value = 1 - pinset.led.value
-        sleep(1)
+    with GPIOCtrl() as pinset:
+        if len(sys.argv) > 1:
+            dispTxt = sys.argv[1].replace("\\n", "\n")
+            pinset.ssd1306.show(dispTxt, "font/HGRGE.TTC", fontSize = 16)
+
+        else:
+            pinset.ssd1306.show("Alice\nin\nCradle", "font/AiC Font.ttf", fontSize = 16)
+        print(pinset.ae_rx8900.update())
+        print(pinset.ae_rx8900.time())
+        print(pinset.ae_rx8900.temp())
+        pinset.led.value = 0
+
+        while True:
+            pinset.led.value = 1 - pinset.led.value
+            sleep(1)
