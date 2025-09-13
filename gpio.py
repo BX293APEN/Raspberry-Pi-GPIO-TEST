@@ -19,6 +19,11 @@ from jaconv import (
     kata2hira
 )
 
+from gpiozero import (
+    DigitalOutputDevice,
+    PWMOutputDevice
+)
+
 from sys import argv
 from os import path
 from re import compile
@@ -26,7 +31,6 @@ from time import sleep
 from datetime import datetime
 
 from busio import I2C
-from gpiozero import DigitalOutputDevice
 from adafruit_ssd1306 import SSD1306_I2C
 
 class SSD1306():
@@ -184,11 +188,11 @@ class AE_RX8900():
 
 class MorseCodeTranslator:
     def __init__(self, gpio = None, tempo = 0.03):
-        self.hiragana = compile(r'[\u3041-\u3096]') #ひらがなの登録
-        self.katakana = compile(r'[\u30A0-\u30FA]') #カタカナの登録
-        self.tempo =  tempo
-        self.morseGPIO = gpio
-        self.morseDataDict = {
+        self.hiragana       = compile(r'[\u3041-\u3096]') #ひらがなの登録
+        self.katakana       = compile(r'[\u30A0-\u30FA]') #カタカナの登録
+        self.tempo          = tempo
+        self.morseGPIO      = gpio
+        self.morseDataDict  = {
             "ja" : {
                 "あ" : "--.--",
                 "い" : ".-",
@@ -292,20 +296,20 @@ class MorseCodeTranslator:
         self.morseData = dict(**self.morseDataDict["base"], **self.morseDataDict["ja"], **self.morseDataDict["en"])
     
     def decode(self, morseCode:str, encoding = "ja"):
-        morseCodeData = morseCode.split(" ")
-        ans = ""
-        lang = encoding
+        morseCodeData       = morseCode.split(" ")
+        ans                 = ""
+        lang                = encoding
         if lang != "ja":
-            lang = "en"
-        codeDict = dict(**self.morseDataDict["base"], **self.morseDataDict[lang])
+            lang            = "en"
+        codeDict            = dict(**self.morseDataDict["base"], **self.morseDataDict[lang])
         
         for mcode in morseCodeData:
             try:
                 if mcode == "":
-                    ans += " "
+                    ans     += " "
                     
                 else:
-                    code = [k for k, v in codeDict.items() if v == mcode][0]
+                    code    = [k for k, v in codeDict.items() if v == mcode][0]
                     if code == "濁点":
                         ans += "゛"
                     elif code == "半濁点":
@@ -313,26 +317,26 @@ class MorseCodeTranslator:
                     else:
                         ans += code
             except:
-                ans += " "
+                ans         += " "
         return ans
     
     def encode(self, morsestr):
         val = ""
         for code in morsestr:
             if code == "　":
-                code = "space"
+                code        = "space"
             elif code == " ":
-                code = "space"
+                code        = "space"
             elif code == "゛":
-                code = "濁点"
+                code        = "濁点"
             elif code == "゜":
-                code = "半濁点"
+                code        = "半濁点"
                 
             elif (self.hiragana.search(code) is not None):
-                hkataka = hira2hkata(code)
-                hkm = h2z(hkataka[0])
+                hkataka     = hira2hkata(code)
+                hkm         = h2z(hkataka[0])
                 try:
-                    hka = h2z(hkataka[1])
+                    hka     = h2z(hkataka[1])
                     val += f"{self.morseData[kata2hira(hkm)]} "
                     if hka == '\uFF9E':
                         code = "濁点"
@@ -343,11 +347,11 @@ class MorseCodeTranslator:
                     hka = ""
 
             elif (self.katakana.search(code) is not None):
-                hkataka = z2h(code)
-                hkm = h2z(hkataka[0])
+                hkataka     = z2h(code)
+                hkm         = h2z(hkataka[0])
                 try:
-                    hka = h2z(hkataka[1])
-                    val += f"{self.morseData[kata2hira(hkm)]} "
+                    hka     = h2z(hkataka[1])
+                    val     += f"{self.morseData[kata2hira(hkm)]} "
                     if hka == '\uFF9E':
                         code = "濁点"
                     elif hka == '\uFF9F':
@@ -357,8 +361,8 @@ class MorseCodeTranslator:
                     hka = ""
                     code = kata2hira(hkm)
             else:
-                code = code.lower()
-            val += f"{self.morseData[code]} "
+                code        = code.lower()
+            val             += f"{self.morseData[code]} "
         return val
     
     def gpio(self, val):
@@ -399,7 +403,7 @@ class GPIOCtrl:
         self.led        = DigitalOutputDevice(pin=ledPin)
         self.ssd1306    = SSD1306(self.i2c)
         self.ae_rx8900  = AE_RX8900(self.i2c)
-        self.morse = MorseCodeTranslator(gpio = self.led, tempo = 0.1)
+        self.morse      = MorseCodeTranslator(gpio = self.led, tempo = 0.1)
 
     def __enter__(self):
         return self
@@ -419,7 +423,7 @@ if __name__ == "__main__":
         
         pinset.ssd1306.show(msg, font, fontSize = 16)
 
-        print(pinset.ae_rx8900.update())
+        # print(pinset.ae_rx8900.update())
         print(pinset.ae_rx8900.time())
         print(pinset.ae_rx8900.temp())
 
